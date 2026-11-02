@@ -67,6 +67,8 @@
   const CAT_KEY = '\u0000cat';
   const pickOf = (list) => list[Math.floor(Math.random() * list.length)];
   const pickMood = (not) => pickOf(CAT_MOODS.filter((m) => m !== not));
+  const DEFAULT_CAT_COLOR = '#e09a4a';
+  const loadCatColor = () => { try { const v = localStorage.getItem('wmad.catColor'); return /^#[0-9a-f]{6}$/i.test(v) ? v : DEFAULT_CAT_COLOR; } catch { return DEFAULT_CAT_COLOR; } };
   const loadCatName = () => { try { return localStorage.getItem('wmad.catName') || null; } catch { return null; } };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -227,7 +229,7 @@
       this.t = performance.now();
       this.pal = palette();
       this.plan = this.buildPlan(0);
-      this.cat = { x: this.plan.W - 3, y: this.plan.D - 2, path: [], until: 0, face: 1, name: loadCatName(), mood: pickMood(), say: null };
+      this.cat = { x: this.plan.W - 3, y: this.plan.D - 2, path: [], until: 0, face: 1, name: loadCatName(), color: loadCatColor(), mood: pickMood(), say: null };
       this.catL = null;
       this.theme = matchMedia('(prefers-color-scheme: dark)');
       this.onTheme = () => (this.pal = palette());
@@ -1504,7 +1506,7 @@
       c.scale(k.face, 1);
       c.fillStyle = this.pal.shadow;
       c.beginPath(); c.ellipse(0, 0, 8, 3, 0, 0, Math.PI * 2); c.fill();
-      const col = '#e09a4a';
+      const col = this.cat.color;
       c.fillStyle = col;
       if (walking) {
         const s = Math.sin(t * 14) * 1.5;
@@ -1516,7 +1518,8 @@
       c.beginPath(); c.moveTo(7, -12.5); c.lineTo(9, -15.5); c.lineTo(9.5, -11); c.fill();
       c.strokeStyle = col; c.lineWidth = 2; c.lineCap = 'round';
       c.beginPath(); c.moveTo(-6, -6); c.quadraticCurveTo(-12, -8 + Math.sin(t * 3) * 3, -10, -14); c.stroke();
-      c.fillStyle = '#2a2018';
+      const lum = (parseInt(col.slice(1, 3), 16) * 299 + parseInt(col.slice(3, 5), 16) * 587 + parseInt(col.slice(5, 7), 16) * 114) / 1000;
+      c.fillStyle = lum < 90 ? '#f2ede4' : '#2a2018';
       c.fillRect(7, -10.5, 1.2, walking ? 1.2 : 0.6);
       c.restore();
       this.hit.push({ key: CAT_KEY, x0: p.x - 12, x1: p.x + 12, y0: p.y - 20, y1: p.y + 4 });
@@ -1530,6 +1533,12 @@
       const v = name.trim().slice(0, 12);
       this.cat.name = v || null;
       try { if (v) localStorage.setItem('wmad.catName', v); else localStorage.removeItem('wmad.catName'); } catch {}
+    }
+
+    setCatColor(v) {
+      if (!/^#[0-9a-f]{6}$/i.test(v)) return;
+      this.cat.color = v;
+      try { localStorage.setItem('wmad.catColor', v); } catch {}
     }
 
     // Returns { ok, text } so the side panel can show the same line as the bubble.

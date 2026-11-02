@@ -1329,10 +1329,12 @@ function renderCat() {
   body.innerHTML = `
     <input class="cat-name" id="catName" maxlength="12" aria-label="${esc(C.nameL)}" value="${esc(office.catName())}">
     <div class="dstatus"><b>${esc(C.moodL)}</b><span class="act">${esc(C.mood[office.cat.mood])}</span></div>
+    <label class="dstatus"><b>${esc(C.colorL)}</b><input type="color" id="catColor" value="${esc(office.cat.color)}"></label>
     <div class="cat-acts">${['toy', 'feed', 'litter', 'pet'].map((a) => `<button data-act="${a}">${esc(C.acts[a])}</button>`).join('')}</div>
     ${catSay ? `<div class="cat-say">${esc(catSay)}</div>` : ''}`;
 }
 document.getElementById('detailBody').addEventListener('input', (e) => {
+  if (catOpen && e.target.id === 'catColor') { office.setCatColor(e.target.value); return; }
   if (!catOpen || e.target.id !== 'catName') return;
   office.setCatName(e.target.value);
   document.getElementById('detailTitle').textContent = office.catName();

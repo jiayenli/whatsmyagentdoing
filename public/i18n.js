@@ -4,7 +4,7 @@
 (() => {
   // Cat strings are English only for now; other languages share them.
   const CAT_EN = {
-    defaultName: 'Mochi', nameL: 'Name', moodL: 'Mood',
+    defaultName: 'Mochi', nameL: 'Name', moodL: 'Mood', colorL: 'Color',
     mood: { bored: '😑 Bored', hungry: '🍗 Hungry', poop: '💩 Need to poop', cuddle: '🥺 Want cuddles' },
     acts: { toy: '🧶 Teaser', feed: '🍗 Feed', litter: '🧹 Clean litter', pet: '✋ Pet' },
     praise: [
@@ -70,7 +70,7 @@
       empty: '這段時間內沒有 Claude Code、Codex 或 Gemini CLI session。開一個就會出現在這裡。',
       doneNote: (p) => `${p} 完成了`,
       cat: {
-        defaultName: '小橘', nameL: '名字', moodL: '心情',
+        defaultName: '小橘', nameL: '名字', moodL: '心情', colorL: '顏色',
         mood: { bored: '😑 好無聊', hungry: '🍗 肚子餓', poop: '💩 想大便', cuddle: '🥺 想撒嬌' },
         acts: { toy: '🧶 逗貓棒', feed: '🍗 餵飯', litter: '🧹 清貓砂', pet: '✋ 摸摸' },
         praise: [
