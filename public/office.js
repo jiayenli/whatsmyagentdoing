@@ -60,6 +60,14 @@
   }
   const pick = (arr, h, salt) => arr[(Math.imul(h ^ Math.imul(salt, 2654435761), 2246822519) >>> 0) % arr.length];
   const rand = (a, b) => a + Math.random() * (b - a);
+
+  // The cat's moods, and the one action that answers each.
+  const CAT_MOODS = ['bored', 'hungry', 'poop', 'cuddle'];
+  const CAT_ACTION = { bored: 'toy', hungry: 'feed', poop: 'litter', cuddle: 'pet' };
+  const CAT_KEY = '\u0000cat';
+  const pickOf = (list) => list[Math.floor(Math.random() * list.length)];
+  const pickMood = (not) => pickOf(CAT_MOODS.filter((m) => m !== not));
+  const loadCatName = () => { try { return localStorage.getItem('wmad.catName') || null; } catch { return null; } };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   function palette() {
@@ -196,9 +204,10 @@
   // ---------------------------------------------------------------- office
 
   class Office {
-    constructor(root, { onHover, label, onFrame, showAgent = true, compact = false } = {}) {
+    constructor(root, { onHover, onCat, label, onFrame, showAgent = true, compact = false } = {}) {
       this.root = root;
       this.onHover = onHover || (() => {});
+      this.onCat = onCat;
       this.label = label || ((s) => s.project || s.agent);
       this.onFrame = onFrame;
       this.showAgent = showAgent;
@@ -218,7 +227,8 @@
       this.t = performance.now();
       this.pal = palette();
       this.plan = this.buildPlan(0);
-      this.cat = { x: this.plan.W - 3, y: this.plan.D - 2, path: [], until: 0, face: 1 };
+      this.cat = { x: this.plan.W - 3, y: this.plan.D - 2, path: [], until: 0, face: 1, name: loadCatName(), mood: pickMood(), say: null };
+      this.catL = null;
       this.theme = matchMedia('(prefers-color-scheme: dark)');
       this.onTheme = () => (this.pal = palette());
       this.theme.addEventListener('change', this.onTheme);
@@ -649,13 +659,18 @@
     pointer(e, click) {
       const r = this.canvas.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
-      let found = null;
+      let found = null, cat = null;
       for (let i = this.hit.length - 1; i >= 0; i--) {
         const h = this.hit[i];
-        if (mx >= h.x0 && mx <= h.x1 && my >= h.y0 && my <= h.y1) { found = h; break; }
+        if (mx >= h.x0 && mx <= h.x1 && my >= h.y0 && my <= h.y1) {
+          if (h.key === CAT_KEY) { cat = cat || h; continue; }
+          found = h; break;
+        }
       }
+      found = found || cat;
       const key = found ? found.key : null;
       this.canvas.style.cursor = key ? 'pointer' : 'default';
+      if (click && key === CAT_KEY && this.onCat) this.onCat();
       if (key !== this.hoverKey || click) {
         this.hoverKey = key;
         const p = key && this.people.get(key);
@@ -1467,7 +1482,13 @@
         const n = k.path[0];
         const dx = n.x - k.x, dy = n.y - k.y, d = Math.hypot(dx, dy), v = 1.2 * dt;
         if (d > 0.001) k.face = dx - dy >= 0 ? 1 : -1;
-        if (d <= v) { k.x = n.x; k.y = n.y; k.path.shift(); if (!k.path.length) k.until = now + rand(4000, 12000); }
+        if (d <= v) {
+          k.x = n.x; k.y = n.y; k.path.shift();
+          if (!k.path.length) {
+            k.until = now + rand(4000, 12000);
+            if (Math.random() < 0.5) k.say = { text: null, until: now + 4000 };
+          }
+        }
         else { k.x += (dx / d) * v; k.y += (dy / d) * v; }
       }
     }
@@ -1497,6 +1518,62 @@
       c.beginPath(); c.moveTo(-6, -6); c.quadraticCurveTo(-12, -8 + Math.sin(t * 3) * 3, -10, -14); c.stroke();
       c.fillStyle = '#2a2018';
       c.fillRect(7, -10.5, 1.2, walking ? 1.2 : 0.6);
+      c.restore();
+      this.hit.push({ key: CAT_KEY, x0: p.x - 12, x1: p.x + 12, y0: p.y - 20, y1: p.y + 4 });
+    }
+
+    catName() {
+      return this.cat.name || (this.catL && this.catL.defaultName) || 'Mochi';
+    }
+
+    setCatName(name) {
+      const v = name.trim().slice(0, 12);
+      this.cat.name = v || null;
+      try { if (v) localStorage.setItem('wmad.catName', v); else localStorage.removeItem('wmad.catName'); } catch {}
+    }
+
+    // Returns { ok, text } so the side panel can show the same line as the bubble.
+    catAct(action) {
+      const k = this.cat, L = this.catL;
+      const ok = CAT_ACTION[k.mood] === action;
+      const text = ok ? pickOf(L.praise) : pickOf(L.scold[k.mood]);
+      if (ok) k.mood = pickMood(k.mood);
+      k.say = { text, until: Date.now() + 5000 };
+      return { ok, text };
+    }
+
+    // The cat's name tag, and its speech bubble when it has something to say.
+    drawCatTag() {
+      const k = this.cat, c = this.ctx, pal = this.pal;
+      const p = this.iso(k.x, k.y, 0);
+      const now = Date.now();
+      c.save();
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.font = '600 10px ui-sans-serif, system-ui, -apple-system, "PingFang TC", "Apple Color Emoji", sans-serif';
+      const name = this.catName();
+      const nw = c.measureText(name).width + 12;
+      this.roundRect(p.x - nw / 2, p.y + 6, nw, 16, 8, pal.tagBg);
+      c.fillStyle = pal.text;
+      c.fillText(name, p.x, p.y + 14.5);
+      if (k.say && now < k.say.until && this.catL) {
+        const text = k.say.text || this.catL.mood[k.mood];
+        const lines = [];
+        let cur = '';
+        for (const w of text.match(/[\u2E80-\u9FFF\uFF00-\uFFEF]|[^\s\u2E80-\u9FFF\uFF00-\uFFEF]+\s*/g) || []) {
+          if (cur && c.measureText(cur + w).width > 120) { lines.push(cur.trimEnd()); cur = ''; }
+          cur += w;
+        }
+        lines.push(cur.trimEnd());
+        const bw = Math.max(...lines.map((l) => c.measureText(l).width)) + 14, bh = lines.length * 13 + 6;
+        const by = p.y - 26 - bh;
+        c.globalAlpha = Math.min(1, (k.say.until - now) / 300);
+        this.roundRect(p.x - bw / 2, by, bw, bh, 8, pal.bubble);
+        this.poly([{ x: p.x - 3, y: by + bh }, { x: p.x + 3, y: by + bh }, { x: p.x, y: by + bh + 4 }], pal.bubble);
+        c.fillStyle = pal.bubbleInk;
+        lines.forEach((l, i) => c.fillText(l, p.x, by + 3 + 6.5 + i * 13));
+        c.globalAlpha = 1;
+      }
       c.restore();
     }
 
@@ -1588,6 +1665,7 @@
         else it.draw();
       }
       this.pingPongBall();
+      this.drawCatTag();
       if (this.compact) {
         // Keep labels readable when the room is scaled down for PiP.
         c.save();

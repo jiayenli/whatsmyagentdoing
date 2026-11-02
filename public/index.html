@@ -257,6 +257,11 @@
   .dactions { display: flex; gap: 8px; margin: 0 6px 6px; }
   .dactions .copy { font-size: 12px; }
   .side .ctx { margin: 0 6px 10px; }
+  .cat-name { display: block; width: calc(100% - 12px); margin: 10px 6px 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; }
+  .cat-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 6px; }
+  .cat-acts button { padding: 9px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+  .cat-acts button:hover, .cat-acts button:focus-visible { background: color-mix(in srgb, var(--ink) 6%, var(--panel)); outline: none; }
+  .cat-say { margin: 4px 6px; padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.55; background: color-mix(in srgb, var(--ink) 6%, var(--panel)); border: 1px solid var(--line); }
   .msgs { display: flex; flex-direction: column; gap: 8px; margin: 6px 4px 0; }
   .msg { max-width: 92%; padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--tool) 16%, var(--panel)); }
@@ -498,7 +503,13 @@ function applyLang(code) {
   if (legend) legend.innerHTML = ['thinking', 'tool', 'typing', 'waiting', 'done', 'error']
     .map((k) => `<span data-s="${k}"><span class="dot" style="color:var(--s)"></span>${L[k]}</span>`).join('');
   if (typeof renderLangMenu === 'function') renderLangMenu();
-  if (typeof office !== 'undefined' && office) office.offDutyLabel = L.wentHome;
+  if (typeof office !== 'undefined' && office) { office.offDutyLabel = L.wentHome; office.catL = L.cat || I18N.en.cat; }
+  if (catOpen) {
+    const n = document.getElementById('catName');
+    const keep = n && document.activeElement === n ? { v: n.value, a: n.selectionStart, b: n.selectionEnd } : null;
+    renderCat();
+    if (keep) { const m = document.getElementById('catName'); m.value = keep.v; m.focus(); m.setSelectionRange(keep.a, keep.b); }
+  }
   if (typeof syncControls === 'function') syncControls();
   if (typeof renderSceneSel === 'function') renderSceneSel();
   if (typeof renderVersion === 'function') renderVersion();
@@ -947,6 +958,7 @@ const officeOpts = {
   compact: PIP,
   onFrame: (renderer) => popout?.drawPreview(renderer),
   label: (s) => (s.agent === 'omp' && s.subagent && s.title) || s.project || AGENT_NAME[s.agent] || s.agent,
+  onCat() { if (state.full) openCat(); },
   onHover(s, at, click) {
     // In full screen a click opens the agent in the side panel instead of pinning a card.
     if (click && state.full && s) { hideTip(); openDetail(s.key); return; }
@@ -962,6 +974,7 @@ const officeOpts = {
 };
 let office = null;
 let officeKind = null;
+let catOpen = false; // the cat's page is showing in the detail pane
 // The 3D office (three.js + models) is only fetched when someone picks it.
 // Until the new office has drawn a settled frame, show a loader instead of a
 // half-built scene.
@@ -1000,6 +1013,7 @@ async function makeOffice() {
   }
   office = mine;
   office.offDutyLabel = L.wentHome;
+  office.catL = L.cat || I18N.en.cat;
   office.setInset(panelInset(), false);
   render();
   const ok = await mine.ready;
@@ -1267,6 +1281,7 @@ function renderSide() {
 
 function openDetail(key) {
   sel = key;
+  catOpen = false;
   if (!state.side) setSide(true);
   document.getElementById('sideList').inert = true;
   document.getElementById('sideDetail').inert = false;
@@ -1282,10 +1297,52 @@ function openDetail(key) {
 }
 function closeDetail() {
   sel = null;
+  catOpen = false;
   sideEl.classList.remove('detail');
   document.getElementById('sideList').inert = false;
   document.getElementById('sideDetail').inert = true;
 }
+
+// The cat's page reuses the detail pane. It is drawn on open and after each
+// action, not on every refresh, so typing a name isn't interrupted.
+let catSay = '';
+function openCat() {
+  hideTip();
+  sel = null;
+  catOpen = true;
+  catSay = '';
+  if (!state.side) setSide(true);
+  document.getElementById('sideList').inert = true;
+  document.getElementById('sideDetail').inert = false;
+  renderCat();
+  requestAnimationFrame(() => {
+    if (!catOpen) return;
+    sideEl.classList.add('detail', 'entering');
+    clearTimeout(openDetail.t); openDetail.t = setTimeout(() => sideEl.classList.remove('entering'), 800);
+  });
+}
+function renderCat() {
+  const C = L.cat || I18N.en.cat;
+  document.getElementById('detailTitle').textContent = office.catName();
+  const body = document.getElementById('detailBody');
+  body.dataset.html = 'cat';
+  body.innerHTML = `
+    <input class="cat-name" id="catName" maxlength="12" aria-label="${esc(C.nameL)}" value="${esc(office.catName())}">
+    <div class="dstatus"><b>${esc(C.moodL)}</b><span class="act">${esc(C.mood[office.cat.mood])}</span></div>
+    <div class="cat-acts">${['toy', 'feed', 'litter', 'pet'].map((a) => `<button data-act="${a}">${esc(C.acts[a])}</button>`).join('')}</div>
+    ${catSay ? `<div class="cat-say">${esc(catSay)}</div>` : ''}`;
+}
+document.getElementById('detailBody').addEventListener('input', (e) => {
+  if (!catOpen || e.target.id !== 'catName') return;
+  office.setCatName(e.target.value);
+  document.getElementById('detailTitle').textContent = office.catName();
+});
+document.getElementById('detailBody').addEventListener('click', (e) => {
+  const b = catOpen && e.target.closest('[data-act]');
+  if (!b) return;
+  catSay = office.catAct(b.dataset.act).text;
+  renderCat();
+});
 
 function renderDetail(scrollDown) {
   const s = state.data.sessions.find((x) => x.key === sel);
@@ -1349,7 +1406,7 @@ document.getElementById('sideRows').addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === 'Escape' && state.full && sel) closeDetail();
+  if (e.key === 'Escape' && state.full && (sel || catOpen)) closeDetail();
 });
 addEventListener('resize', () => { if (!state.full) return; measureBar(); office?.setInset(panelInset(), false); });
 if (state.full) {

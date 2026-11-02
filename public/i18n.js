@@ -2,6 +2,26 @@
 // you write your prompts in (worked out by the server), else the browser's
 // language, else English.
 (() => {
+  // Cat strings are English only for now; other languages share them.
+  const CAT_EN = {
+    defaultName: 'Mochi', nameL: 'Name', moodL: 'Mood',
+    mood: { bored: '😑 Bored', hungry: '🍗 Hungry', poop: '💩 Need to poop', cuddle: '🥺 Want cuddles' },
+    acts: { toy: '🧶 Teaser', feed: '🍗 Feed', litter: '🧹 Clean litter', pet: '✋ Pet' },
+    praise: [
+      'I think your keyboard tastes better than your code.',
+      'Purr. Merge approved.',
+      'I sat on your git history. You are welcome.',
+      'This is the best commit of the day.',
+      'I will now knock your coffee off the desk as a thank you.',
+    ],
+    scold: {
+      bored: ['Hmph, I wanted to play, silly~', 'Not that! I am bored, do something fun~', 'Meow?! Where is my toy?'],
+      hungry: ['Hmph, I wanted food, silly~', 'My tummy is rumbling, and you did THAT?', 'Food first, then we talk, meow~'],
+      poop: ['Hmph, my litter box first, silly~', 'This is urgent!! The litter box, human~', 'Meow! Not now, I really need to go!'],
+      cuddle: ['Hmph, I wanted cuddles, silly~', 'Pet me, I said pet me~', 'Meow... you are ignoring my feelings.'],
+    },
+  };
+
   const S = {
     en: {
       settings: "Settings", scene: "Scene", agents: "Agents", language: "Language",
@@ -25,6 +45,7 @@
       copy: 'Copy resume cmd', copied: 'Copied ✓', sub: 'subagent', auto: 'Auto',
       empty: 'No Claude Code, Codex or Gemini CLI sessions in the time window. Start one and it shows up here.',
       doneNote: (p) => `${p} is done`,
+      cat: CAT_EN,
     },
     'zh-TW': {
       settings: "設定", scene: "場景", agents: "顯示哪些 Agent", language: "語言",
@@ -48,6 +69,24 @@
       copy: '複製接續指令', copied: '已複製 ✓', sub: '子 agent', auto: '自動',
       empty: '這段時間內沒有 Claude Code、Codex 或 Gemini CLI session。開一個就會出現在這裡。',
       doneNote: (p) => `${p} 完成了`,
+      cat: {
+        defaultName: '小橘', nameL: '名字', moodL: '心情',
+        mood: { bored: '😑 好無聊', hungry: '🍗 肚子餓', poop: '💩 想大便', cuddle: '🥺 想撒嬌' },
+        acts: { toy: '🧶 逗貓棒', feed: '🍗 餵飯', litter: '🧹 清貓砂', pet: '✋ 摸摸' },
+        praise: [
+          '我覺得鍵盤比你的 code 好吃',
+          '呼嚕～這個 PR 我 approve 了',
+          '我剛剛踩過你的 git history，不用謝',
+          '這是今天最棒的一次 commit',
+          '為了感謝你，我等一下會把你的咖啡推下桌',
+        ],
+        scold: {
+          bored: ['哼，我要的是玩啦，笨蛋～', '才不是這個！人家好無聊，要好玩的～', '喵？我的逗貓棒呢？'],
+          hungry: ['哼，我要的是飯啦，笨蛋～', '肚子咕嚕咕嚕叫，你居然給我這個？', '先給我吃的，再來談其他，喵～'],
+          poop: ['哼，我要先上廁所啦，笨蛋～', '很急很急！貓砂啦，人類～', '喵！現在不要，我真的要去了！'],
+          cuddle: ['哼，我要的是抱抱啦，笨蛋～', '摸摸我啦，我說摸摸～', '喵…你都不理我的心情。'],
+        },
+      },
     },
     'zh-CN': {
       settings: "设置", scene: "场景", agents: "显示哪些 Agent", language: "语言",
@@ -71,6 +110,7 @@
       copy: '复制续接命令', copied: '已复制 ✓', sub: '子 agent', auto: '自动',
       empty: '这段时间内没有 Claude Code、Codex 或 Gemini CLI 会话。开一个就会出现在这里。',
       doneNote: (p) => `${p} 完成了`,
+      cat: CAT_EN,
     },
     ja: {
       settings: "設定", scene: "シーン", agents: "エージェント", language: "言語",
@@ -94,6 +134,7 @@
       copy: '再開コマンドをコピー', copied: 'コピーしました ✓', sub: 'サブ', auto: '自動',
       empty: 'この期間の Claude Code・Codex・Gemini CLI セッションはありません。始めるとここに表示されます。',
       doneNote: (p) => `${p} が完了しました`,
+      cat: CAT_EN,
     },
     ko: {
       settings: "설정", scene: "장면", agents: "에이전트", language: "언어",
@@ -117,6 +158,7 @@
       copy: '이어하기 명령 복사', copied: '복사됨 ✓', sub: '하위', auto: '자동',
       empty: '이 기간에 Claude Code, Codex, Gemini CLI 세션이 없습니다. 시작하면 여기에 나타납니다.',
       doneNote: (p) => `${p} 완료`,
+      cat: CAT_EN,
     },
     es: {
       settings: "Ajustes", scene: "Escenario", agents: "Agentes", language: "Idioma",
@@ -140,6 +182,7 @@
       copy: 'Copiar comando', copied: 'Copiado ✓', sub: 'subagente', auto: 'Auto',
       empty: 'No hay sesiones de Claude Code, Codex ni Gemini CLI en este periodo. Inicia una y aparecerá aquí.',
       doneNote: (p) => `${p} terminó`,
+      cat: CAT_EN,
     },
     fr: {
       settings: "Réglages", scene: "Scène", agents: "Agents", language: "Langue",
@@ -163,6 +206,7 @@
       copy: 'Copier la commande', copied: 'Copié ✓', sub: 'sous-agent', auto: 'Auto',
       empty: 'Aucune session Claude Code, Codex ou Gemini CLI sur la période. Lancez-en une, elle apparaîtra ici.',
       doneNote: (p) => `${p} a terminé`,
+      cat: CAT_EN,
     },
     de: {
       settings: "Einstellungen", scene: "Szene", agents: "Agents", language: "Sprache",
@@ -186,6 +230,7 @@
       copy: 'Befehl kopieren', copied: 'Kopiert ✓', sub: 'Sub-Agent', auto: 'Auto',
       empty: 'Keine Claude-Code-, Codex- oder Gemini-CLI-Sitzungen im Zeitraum. Starte eine, dann erscheint sie hier.',
       doneNote: (p) => `${p} ist fertig`,
+      cat: CAT_EN,
     },
     pt: {
       settings: "Configurações", scene: "Cenário", agents: "Agentes", language: "Idioma",
@@ -209,6 +254,7 @@
       copy: 'Copiar comando', copied: 'Copiado ✓', sub: 'subagente', auto: 'Auto',
       empty: 'Nenhuma sessão de Claude Code, Codex ou Gemini CLI no período. Inicie uma e ela aparece aqui.',
       doneNote: (p) => `${p} terminou`,
+      cat: CAT_EN,
     },
   };
 
