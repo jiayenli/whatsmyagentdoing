@@ -12,7 +12,7 @@ const https = require('https');
 const { execFile } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const LATEST_URL = 'https://raw.githubusercontent.com/Charonyuu/whatsmyagentdoing/main/package.json';
+const LATEST_URL = 'https://raw.githubusercontent.com/jiayenli/whatsmyagentdoing/main/package.json';
 const CHECK_EVERY = 30 * 60 * 1000;
 
 function localVersion() {
