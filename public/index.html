@@ -243,6 +243,7 @@
   .srow .st i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--s); }
   .srow .st span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .srow .st b { flex: none; color: var(--s); font-weight: 600; }
+  .srow .st .idle-for { flex: none; font-size: 11.5px; }
   .srow.sub .nm { font-weight: 500; color: var(--muted); }
   .dmeta { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 10px 6px 12px; font-size: 12.5px; }
   .dmeta dt { color: var(--faint); }
@@ -310,6 +311,9 @@
   [data-s="interrupted"] { --s: var(--idle); }
   [data-s="error"] { --s: var(--error); }
   [data-s="idle"] { --s: var(--idle); }
+  [data-s="closed"] { --s: var(--idle); }
+  .card[data-s="closed"] { opacity: .65; }
+  .idle-for { color: var(--faint); font-size: 12px; white-space: nowrap; }
 
   .ind { width: 18px; height: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 2px; flex: none; }
   .ind i { width: 4px; height: 4px; border-radius: 50%; background: var(--s); display: none; }
@@ -568,7 +572,9 @@ const GROUPS = [
   { key: 'working', match: (s) => ACTIVE.has(s) },
   { key: 'finished', match: (s) => s === 'done' || s === 'interrupted' },
   { key: 'idle', match: (s) => s === 'idle' },
+  { key: 'closed', match: (s) => s === 'closed' },
 ];
+const DAY = 86_400_000;
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -654,6 +660,13 @@ function renderToday() {
     <div class="today-note">${esc(L.summaryNote)}</div>`;
 }
 
+// How long an open session has gone without a prompt from you, once it's an hour or more.
+function idleBadge(s, now) {
+  const quiet = !s.subagent && s.open && s.promptAt && !ACTIVE.has(s.status) && s.status !== 'waiting' ? now - s.promptAt : 0;
+  if (quiet < 3_600_000) return '';
+  return `<span class="idle-for">${esc(quiet >= DAY ? L.idleFor(Math.floor(quiet / DAY), true) : L.idleFor(Math.floor(quiet / 3_600_000), false))}</span>`;
+}
+
 function card(s, now) {
   const project = s.project || (s.cwd ? s.cwd : '—');
   const title = s.title && s.title !== project ? `<div class="title" title="${esc(s.title)}">${esc(s.title)}</div>` : '';
@@ -665,6 +678,7 @@ function card(s, now) {
   const sub = s.subagent ? ` · ${L.sub}` : '';
   const stuck = s.stuck ? `<span class="stuck"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 4.2a2 2 0 0 1 3.4 0l7.6 13.1A2 2 0 0 1 19.6 20H4.4a2 2 0 0 1-1.7-2.7z"/><path d="M12 9.5v4.2M12 16.6v.1"/></svg>${esc(L.stuck(s.stuck))}</span>` : '';
   const ctx = contextBar(s.context);
+  const idleFor = idleBadge(s, now);
   return `
   <div class="card${s.subagent ? ' sub' : ''}${s.stuck ? ' is-stuck' : ''}${state.flash.has(s.key) ? ' flash' : ''}" data-s="${s.status}" data-key="${esc(s.key)}">
     <div class="top">
@@ -673,7 +687,7 @@ function card(s, now) {
       <span class="time" data-time="${esc(s.key)}">${esc(timeLabel(s, now))}</span>
     </div>
     ${title}
-    <div class="status"><span class="ind"><i></i><i></i><i></i></span><span class="lbl">${esc(L[s.status] || s.status)}</span>${act}${stuck}</div>
+    <div class="status"><span class="ind"><i></i><i></i><i></i></span><span class="lbl">${esc(L[s.status] || s.status)}</span>${act}${stuck}${idleFor}</div>
     ${err}${q}${r}${ctx}
     <div class="foot"><span class="model">${esc((s.model || '') + sub)}</span>${resumeCmd(s) ? `<button class="copy" data-copy="${esc(resumeCmd(s))}">${L.copy}</button>` : ''}</div>
   </div>`;
@@ -687,6 +701,18 @@ function visible() {
     (state.showIdle || s.status !== 'idle'));
 }
 
+// Open Claude Code sessions, how many have sat untouched for a day, and how many have closed.
+function openChips(all, now) {
+  const main = all.filter((s) => s.agent === 'claude' && !s.subagent && s.open !== null && s.open !== undefined);
+  if (!main.length) return '';
+  const open = main.filter((s) => s.open);
+  const stale = open.filter((s) => s.promptAt && now - s.promptAt >= DAY).length;
+  const closed = main.length - open.length;
+  return `<span class="chip"><span class="dot" style="color:var(--tool)"></span>${esc(L.openL)} <b>${open.length}</b></span>`
+    + (stale ? `<span class="chip"><span class="dot" style="color:var(--idle)"></span>${esc(L.staleL)} <b>${stale}</b></span>` : '')
+    + (closed ? `<span class="chip"><span class="dot" style="color:var(--faint)"></span>${esc(L.closed)} <b>${closed}</b></span>` : '');
+}
+
 function render() {
   const now = Date.now() - state.skew;
   const list = visible();
@@ -697,7 +723,7 @@ function render() {
     const n = count(g.match);
     const color = g.key === 'needsYou' ? 'var(--waiting)' : g.key === 'working' ? 'var(--tool)' : 'var(--done)';
     return `<span class="chip"><span class="dot" style="color:${color}"></span>${L[g.key]} <b>${n}</b></span>`;
-  }).join('');
+  }).join('') + openChips(all, now);
 
   renderToday();
   renderSide();
@@ -709,7 +735,8 @@ function render() {
   const officeMode = state.view === 'office' || state.full;
   document.getElementById('officeWrap').style.display = officeMode ? '' : 'none';
   // The office decides who sits at a desk and who wanders around.
-  const officeList = all;
+  // Closed Claude Code sessions have left the office; they stay in the list's own group.
+  const officeList = all.filter((s) => s.open !== false);
   const poppedOut = !!popout?.win;
   // Wait for the first snapshot so people start at their places instead of
   // all walking in through the door.
@@ -1223,7 +1250,7 @@ function renderSide() {
       return `<button class="srow${s.subagent ? ' sub' : ''}" data-key="${esc(s.key)}" style="--s:${statusColor(s.status)};--i:${Math.min(i + (g.key === 'working' ? 3 : g.key === 'finished' ? 8 : 0), 14)}">
         ${agentLogo(s.agent) || '<span></span>'}<span class="nm">${esc(s.project || AGENT_NAME[s.agent] || s.agent)}</span>
         <span class="tm" data-time="${esc(s.key)}"></span>
-        <span class="st"><i></i><b>${esc(L[s.status] || s.status)}</b>${act ? `<span>${esc(act)}</span>` : ''}</span></button>`;
+        <span class="st"><i></i><b>${esc(L[s.status] || s.status)}</b>${idleBadge(s, now)}${act ? `<span>${esc(act)}</span>` : ''}</span></button>`;
     }).join('');
   }).join('');
   const box = document.getElementById('sideRows');

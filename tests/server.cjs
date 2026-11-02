@@ -35,3 +35,20 @@ test('silent active sessions are flagged as stuck, with minutes, until they time
   assert.equal(by.e.stuck, 0, 'waiting for you is not stuck');
   assert.equal(by.f.status, 'idle'); assert.equal(by.f.stuck, 0);
 });
+
+test('a Claude session whose process exited is shown as closed, with its open state and prompt time', () => {
+  const { snapshot } = require('../src/server');
+  const now = Date.now();
+  const rows = snapshot({ sessions: () => [
+    { agent: 'claude', id: 'gone', status: 'thinking', open: false, lastEventAt: now, promptAt: now - 1000, cwd: '/w' },
+    { agent: 'claude', id: 'live', status: 'done', open: true, lastEventAt: now, promptAt: now - 1000, cwd: '/w' },
+    { agent: 'codex', id: 'other', status: 'done', lastEventAt: now, cwd: '/w' },
+  ] }, { privacy: false }).sessions;
+  const by = Object.fromEntries(rows.map(r => [r.id, r]));
+  assert.equal(by.gone.status, 'closed');
+  assert.equal(by.gone.open, false);
+  assert.equal(by.live.status, 'done');
+  assert.equal(by.live.open, true);
+  assert.equal(by.live.promptAt, now - 1000);
+  assert.equal(by.other.open, null);
+});

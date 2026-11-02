@@ -148,6 +148,7 @@ function describeClaudeTool(name, input = {}) {
 function applyClaude(s, d) {
   const ts = stamp(s, d.timestamp);
   if (d.cwd) s.cwd = d.cwd;
+  if (d.entrypoint) s.entrypoint = d.entrypoint;
 
   switch (d.type) {
     case 'custom-title':
@@ -189,6 +190,7 @@ function applyClaude(s, d) {
         s.reply = null;
       }
       s.turnStartedAt = ts;
+      if (!isNotification && !d.isSidechain) s.promptAt = ts;
       if (!isNotification && !d.isSidechain) countTurn(s, ts);
       set(s, 'thinking', null);
       return;

@@ -45,6 +45,8 @@ function view(s, now, { privacy }) {
   if (status === 'thinking' && s.source !== 'magpie' && quiet > 15 * 60_000) status = 'idle';
   if (status === 'tool' && quiet > 45 * 60_000) status = 'idle';
   if ((status === 'waiting' || status === 'error') && quiet > 2 * 3600_000) status = 'idle';
+  // The Claude Code process has exited: whatever the log last said, it is closed.
+  if (s.open === false) status = 'closed';
   // Still "active" but silent for a while: likely stuck (a hung tool, a lost prompt).
   const stuckAfter = status === 'tool' ? 10 * 60_000 : status === 'thinking' ? 8 * 60_000 : Infinity;
   const stuck = quiet > stuckAfter ? Math.floor(quiet / 60_000) : 0;
@@ -63,6 +65,8 @@ function view(s, now, { privacy }) {
     model: s.model,
     status,
     stuck,
+    open: s.open ?? null,
+    promptAt: s.promptAt || null,
     context: s.context ? { used: s.context, window: s.contextWindow || null } : null,
     today: s.daily && s.daily.day === dayKey(now) ? { turns: s.daily.turns, tokens: s.daily.tokens } : null,
     activity: status === 'tool' || status === 'waiting' ? s.activity : null,

@@ -10,6 +10,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { StringDecoder } = require('string_decoder');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const { newSession, applyClaude, applyCodex, applyGemini, applyGeminiDocument, applyCopilot, applyOMP, applyAntigravity } = require('./parsers');
 const { Magpie } = require('./magpie');
 const { clientFiles, metadata, applyKimi, applyDsh, applyGrok, readDsh } = require('./clients');
@@ -26,6 +27,8 @@ const DSH_REPLAY_MS = 5000;
 
 const home = os.homedir();
 const CLAUDE_DIR = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'projects');
+// Claude Code writes <pid>.json here for every open session.
+const CLAUDE_SESSIONS_DIR = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'sessions');
 const CODEX_HOME = process.env.CODEX_HOME || path.join(home, '.codex');
 const CODEX_DIR = path.join(CODEX_HOME, 'sessions');
 const CODEX_INDEX = path.join(CODEX_HOME, 'session_index.jsonl');
@@ -85,6 +88,74 @@ function claudeFiles() {
         }
       }
     }
+  }
+  return out;
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e?.code === 'EPERM'; }
+}
+
+// pid -> process start time (`ps -o lstart=` in the C locale, UTC), batched in
+// one call. null when it can't be asked (Windows, no ps), so callers fall back
+// to the plain liveness check.
+function psStarts(pids) {
+  if (process.platform === 'win32') return null;
+  let out;
+  try {
+    out = execFileSync('ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')],
+      { env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' }, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch (e) {
+    out = e?.stdout; // ps exits 1 when some pid is gone but still lists the others
+    if (typeof out !== 'string') return null;
+  }
+  const m = new Map();
+  for (const line of out.split('\n')) {
+    const r = line.match(/^\s*(\d+)\s+(.+?)\s*$/);
+    if (r) m.set(Number(r[1]), r[2]);
+  }
+  return m;
+}
+
+// Session ID -> pid for every Claude Code session whose process is still
+// running, or null when this Claude Code doesn't write session files.
+// A pid file's procStart must match the live process, so a reused pid is dead.
+// `state` caches parsed pid files (by name + mtime) and procStart checks (by pid + procStart).
+function liveClaude(alive = pidAlive, state = { files: new Map(), starts: new Map() }, procStartOf = psStarts) {
+  const files = ls(CLAUDE_SESSIONS_DIR).filter((e) => e.isFile() && /^\d+\.json$/.test(e.name));
+  if (!files.length) return null;
+  const seen = new Set();
+  const entries = [];
+  for (const e of files) {
+    seen.add(e.name);
+    const file = path.join(CLAUDE_SESSIONS_DIR, e.name);
+    const mtimeMs = statSafe(file)?.mtimeMs;
+    let c = state.files.get(e.name);
+    if (!c || c.mtimeMs !== mtimeMs) {
+      c = { mtimeMs, d: null };
+      try {
+        const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const pid = Number(d.pid);
+        if (typeof d.sessionId === 'string' && Number.isInteger(pid) && pid > 0) {
+          c.d = { sessionId: d.sessionId, pid, procStart: typeof d.procStart === 'string' ? d.procStart.trim() : '' };
+        }
+      } catch {}
+      state.files.set(e.name, c);
+    }
+    if (c.d && alive(c.d.pid)) entries.push(c.d);
+  }
+  for (const name of state.files.keys()) if (!seen.has(name)) state.files.delete(name);
+
+  // Ask for start times only of pid+procStart pairs not seen before.
+  const fresh = entries.filter((d) => d.procStart && !state.starts.has(`${d.pid}|${d.procStart}`));
+  if (fresh.length) {
+    const starts = procStartOf([...new Set(fresh.map((d) => d.pid))]);
+    if (starts) for (const d of fresh) state.starts.set(`${d.pid}|${d.procStart}`, starts.get(d.pid) === d.procStart);
+  }
+  const out = new Map();
+  for (const d of entries) {
+    if (d.procStart && state.starts.get(`${d.pid}|${d.procStart}`) === false) continue;
+    out.set(d.sessionId, d.pid);
   }
   return out;
 }
@@ -226,8 +297,12 @@ function sameOMPPath(s, a, b) {
 
 class Watcher extends EventEmitter {
   constructor({ hours = 24, interval = 1000, ompDir, magpieSources = process.env.WMAD_MAGPIE_SOURCES,
-    magpieUrl = process.env.WMAD_MAGPIE_URL, magpieKey = process.env.WMAD_MAGPIE_KEY } = {}) {
+    magpieUrl = process.env.WMAD_MAGPIE_URL, magpieKey = process.env.WMAD_MAGPIE_KEY, pidAlive: alive = pidAlive, procStartOf = psStarts } = {}) {
     super();
+    this.pidAlive = alive;
+    this.procStartOf = procStartOf;
+    this.liveState = { files: new Map(), starts: new Map() };
+    this.live = null; // Claude session ID -> pid while its process runs; null when unknown
     this.windowMs = hours * 3600 * 1000;
     this.interval = interval;
     this.trackers = new Map(); // file -> { session, offset, partial, apply }
@@ -344,6 +419,10 @@ class Watcher extends EventEmitter {
     // Directory walk every 5s; stat known files every tick.
     if (now - this.lastScan > 5000) {
       this.lastScan = now;
+      const live = liveClaude(this.pidAlive, this.liveState, this.procStartOf);
+      const key = (m) => (m ? [...m.keys()].sort().join() : null);
+      if (key(live) !== key(this.live)) changed = true;
+      this.live = live;
       this.candidates = [...claudeFiles(), ...codexFiles(since), ...geminiFiles(), ...copilotFiles(),
         ...clientFiles(CLIENT_DIRS, since), ...ompFiles(since, ompDirs(this.ompDir, process.env, home, process.platform)),
         ...antigravityFiles(since)];
@@ -373,7 +452,7 @@ class Watcher extends EventEmitter {
 
     for (const [file, t] of this.trackers) {
       const activity = t.session.agent === 'omp' ? Math.max(t.session.lastEventAt || 0, t.session.mtime || 0) : (t.session.lastEventAt || t.session.mtime || 0);
-      if (activity < since) { this.trackers.delete(file); changed = true; }
+      if (activity < since && !this.isOpen(t.session)) { this.trackers.delete(file); changed = true; }
     }
 
     if (changed) this.emit('change');
@@ -385,7 +464,7 @@ class Watcher extends EventEmitter {
     const t = this.trackers.get(c.file);
     if (!st) return c.agent === 'omp' && this.trackers.delete(c.file);
     if (!t) {
-      if (st.mtimeMs < since) return false;
+      if (st.mtimeMs < since && !this.isOpen(c)) return false;
       this.open(c, st);
       return true;
     }
@@ -563,6 +642,13 @@ class Watcher extends EventEmitter {
     return id;
   }
 
+  // An open Claude Code main session stays listed however long it has been quiet.
+  // Only interactive CLI sessions are judged by their pid file; a candidate that
+  // isn't parsed yet has no entrypoint, so it is let in and judged once parsed.
+  isOpen(s) {
+    return !!this.live && s.agent === 'claude' && !s.parentId && this.live.has(s.id) && (!s.status || s.entrypoint === 'cli');
+  }
+
   // Markers written by `cli.js --hook`; returns true when they changed.
   loadWaiting(since) {
     const next = hook.markers(since);
@@ -615,6 +701,8 @@ class Watcher extends EventEmitter {
         const t = this.antigravityTitle(s.id);
         if (t) s.title = t;
       }
+      // Whether the Claude Code process is still running; subagents follow their parent.
+      if (s.agent === 'claude') s.open = this.live && s.entrypoint === 'cli' ? this.live.has(s.parentId || s.id) : undefined;
       // A permission prompt from the optional Claude Code hook, until the log moves on.
       const wait = s.agent === 'claude' && !s.subagent && this.waiting.get(s.id);
       if (wait && wait.at > (s.lastEventAt || 0)) {

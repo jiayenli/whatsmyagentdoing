@@ -153,3 +153,93 @@ test('legacy Gemini documents reload when their size changes without an mtime ch
   assert.equal(f.watcher.sessions()[0].status, 'tool');
   assert.equal(f.watcher.sessions()[0].activity, 'read_file config.json');
 });
+
+// Claude Code: open sessions come from ~/.claude/sessions/<pid>.json plus a live pid.
+function claudeFixture(t, alivePids, starts = null) {
+  const f = fixture(t);
+  const mod = { exports: {} };
+  const io = fs;
+  class Clock extends Date { static now() { return NOW; } }
+  vm.runInNewContext(source, {
+    module: mod, Buffer, Date: Clock, process: { env: {} }, setInterval, clearInterval,
+    require: name => name === 'os' ? { homedir: () => f.root } : name === 'fs' ? io : localRequire(name),
+  }, { filename: watcherPath });
+  const watcher = new mod.exports.Watcher({ pidAlive: pid => alivePids.has(pid), ...(starts && { procStartOf: pids => new Map(pids.filter(p => starts[p]).map(p => [p, starts[p]])) }) });
+  const log = (id, at, prompt = 'hi', extra = { entrypoint: 'cli' }) => {
+    const file = path.join(f.root, '.claude/projects/-demo', `${id}.jsonl`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ type: 'user', timestamp: new Date(at).toISOString(), cwd: '/demo', ...extra, message: { content: prompt } }) + '\n');
+    fs.utimesSync(file, new Date(at), new Date(at));
+  };
+  const pidFile = (pid, sessionId, procStart) => {
+    const dir = path.join(f.root, '.claude/sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId, ...(procStart && { procStart }) }));
+  };
+  return { watcher, log, pidFile };
+}
+
+test('an open Claude session stays listed past the window; a closed one is marked closed', t => {
+  const f = claudeFixture(t, new Set([101]));
+  f.log('old-open', NOW - 10 * 24 * HOUR, 'last week');
+  f.log('recent-closed', NOW - HOUR);
+  f.log('old-closed', NOW - 10 * 24 * HOUR);
+  f.pidFile(101, 'old-open');
+  f.pidFile(102, 'recent-closed');
+  f.watcher.tick();
+  const by = Object.fromEntries(f.watcher.sessions().map(s => [s.id, s]));
+  assert.deepEqual(Object.keys(by).sort(), ['old-open', 'recent-closed']);
+  assert.equal(by['old-open'].open, true);
+  assert.equal(by['old-open'].promptAt, NOW - 10 * 24 * HOUR);
+  assert.equal(by['old-open'].prompt, 'last week');
+  assert.equal(by['recent-closed'].open, false);
+});
+
+test('without a Claude sessions folder, open state is unknown and the window applies as before', t => {
+  const f = claudeFixture(t, new Set());
+  f.log('old', NOW - 10 * 24 * HOUR);
+  f.log('recent', NOW - HOUR);
+  f.watcher.tick();
+  const rows = f.watcher.sessions();
+  assert.deepEqual(Array.from(rows, s => s.id), ['recent']);
+  assert.equal(rows[0].open, undefined);
+});
+
+test('Claude sessions without a pid file (non-cli or old logs) are not marked closed', t => {
+  const f = claudeFixture(t, new Set([101]));
+  f.log('cli-open', NOW - HOUR);
+  f.log('cli-dead', NOW - HOUR);
+  f.log('sdk', NOW - HOUR, 'hi', { entrypoint: 'sdk-cli' });
+  f.log('legacy', NOW - HOUR, 'hi', {});
+  f.pidFile(101, 'cli-open');
+  f.pidFile(102, 'cli-dead');
+  f.watcher.tick();
+  const by = Object.fromEntries(f.watcher.sessions().map(s => [s.id, s]));
+  assert.equal(by['cli-open'].open, true);
+  assert.equal(by['cli-dead'].open, false);
+  assert.equal(by.sdk.open, undefined);
+  assert.equal(by.legacy.open, undefined);
+});
+
+test('a reused pid (procStart mismatch) counts as closed; matching or missing procStart stays open', t => {
+  const T = 'Mon Nov  2 07:16:10 2026';
+  const f = claudeFixture(t, new Set([101, 102, 103]), { 101: T, 102: 'Tue Nov  3 01:00:00 2026', 103: T });
+  for (const id of ['same', 'reused', 'nostart']) f.log(id, NOW - HOUR);
+  f.pidFile(101, 'same', T);
+  f.pidFile(102, 'reused', T);
+  f.pidFile(103, 'nostart');
+  f.watcher.tick();
+  const by = Object.fromEntries(f.watcher.sessions().map(s => [s.id, s]));
+  assert.equal(by.same.open, true);
+  assert.equal(by.reused.open, false);
+  assert.equal(by.nostart.open, true);
+});
+
+test('a sidechain user line does not move promptAt', () => {
+  const { newSession, applyClaude } = require('../src/parsers');
+  const s = newSession('claude', 'x', '/x.jsonl');
+  const line = (isSidechain, at) => ({ type: 'user', isSidechain, timestamp: new Date(at).toISOString(), message: { content: 'p' } });
+  applyClaude(s, line(false, NOW - 2 * HOUR));
+  applyClaude(s, line(true, NOW - HOUR));
+  assert.equal(s.promptAt, NOW - 2 * HOUR);
+});
