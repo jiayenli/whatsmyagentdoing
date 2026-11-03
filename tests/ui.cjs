@@ -418,6 +418,17 @@ async function drawnLogos(target) {
   }
   check('settings close with Escape/outside click, restore focus, and fit narrow and wide screens in both themes');
   }
+  await stable(page);
+  await openAgent(page,'claude:done');
+  await page.click('#detailBody [data-hide]');
+  assert.equal(await page.evaluate(()=>document.getElementById('side').classList.contains('detail')),false,'hiding returns to the list');
+  assert.equal((await rowKeys(page)).includes('claude:done'),false,'a hidden session leaves the list');
+  assert.equal(await page.evaluate(()=>state.data.sessions.some(s=>s.key==='claude:done')),false,'and the office');
+  await page.evaluate(s=>onData({now:Date.now(),sessions:s}),sessions);
+  assert.equal((await rowKeys(page)).includes('claude:done'),false,'it stays hidden on the next snapshot');
+  await page.evaluate(s=>onData({now:Date.now(),sessions:s.map(x=>x.key==='claude:done'?{...x,status:'thinking',lastEventAt:x.lastEventAt+5000}:x)}),sessions);
+  assert.equal((await rowKeys(page)).includes('claude:done'),true,'new activity brings it back');
+  check('a session hidden from the panel leaves list and office until it is active again');
   assert.deepEqual(errors,[]);check('no uncaught browser errors');
   console.log('TOTAL',checks.length);
  } finally {

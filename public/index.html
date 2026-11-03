@@ -256,6 +256,9 @@
   .dtitle { margin: 4px 6px 0; font-size: 13px; color: var(--muted); }
   .dactions { display: flex; gap: 8px; margin: 0 6px 6px; }
   .dactions .copy { font-size: 12px; }
+  .hidebtn { margin-left: auto; border: 0; background: none; color: var(--faint); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+  .hidebtn:hover { color: var(--ink); }
+  .dactions .copy + .hidebtn { margin-left: 0; }
   .side .ctx { margin: 0 6px 10px; }
   .cat-name { display: block; width: calc(100% - 12px); margin: 10px 6px 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; }
   .cat-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 6px; }
@@ -797,7 +800,24 @@ function tickTimes() {
   });
 }
 
+// Sessions the user hid from the panel: key -> its last activity when hidden.
+// Only this browser forgets them; the logs stay. New activity brings one back.
+const hiddenAt = (() => {
+  const v = store.get('hidden', {});
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+})();
+let rawData = null;
+const notHidden = (s) => !(Object.hasOwn(hiddenAt, s.key) && (s.lastEventAt || 0) <= hiddenAt[s.key]);
+function hideSession(s) {
+  hiddenAt[s.key] = s.lastEventAt || 0;
+  store.set('hidden', hiddenAt);
+  closeDetail();
+  if (rawData) onData(rawData);
+}
+
 function onData(data) {
+  rawData = data;
+  data = { ...data, sessions: data.sessions.filter(notHidden) };
   for (const s of data.sessions) {
     if (!validAgentId(s.agent)) continue;
     if (!Object.hasOwn(AGENT_NAME, s.agent)) AGENT_NAME[s.agent] = s.agentName || s.agent;
@@ -1340,6 +1360,11 @@ document.getElementById('detailBody').addEventListener('input', (e) => {
   document.getElementById('detailTitle').textContent = office.catName();
 });
 document.getElementById('detailBody').addEventListener('click', (e) => {
+  if (!catOpen && sel && e.target.closest('[data-hide]')) {
+    const s = state.data.sessions.find((x) => x.key === sel);
+    if (s) hideSession(s);
+    return;
+  }
   const b = catOpen && e.target.closest('[data-act]');
   if (!b) return;
   catSay = office.catAct(b.dataset.act).text;
@@ -1372,7 +1397,7 @@ function renderDetail(scrollDown) {
       <dt></dt><dd data-time="${esc(s.key)}"></dd>
     </dl>
     ${contextBar(s.context)}
-    ${resume ? `<div class="dactions"><button class="copy" data-copy="${esc(resume)}">${L.copy}</button></div>` : ''}
+    <div class="dactions">${resume ? `<button class="copy" data-copy="${esc(resume)}">${L.copy}</button>` : ''}<button class="hidebtn" data-hide title="${esc(L.hideTip)}">${esc(L.hide)}</button></div>
     <div class="side-sec">${esc(L.recent)}</div>
     ${msgs}`;
   // The turn timer ticks on its own (tickTimes), so the panel only redraws when something changed.
