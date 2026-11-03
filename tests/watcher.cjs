@@ -176,7 +176,7 @@ function claudeFixture(t, alivePids, starts = null) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId, ...(procStart && { procStart }) }));
   };
-  return { watcher, log, pidFile };
+  return { watcher, log, pidFile, root: f.root };
 }
 
 test('an open Claude session stays listed past the window; a closed one is marked closed', t => {
@@ -193,6 +193,18 @@ test('an open Claude session stays listed past the window; a closed one is marke
   assert.equal(by['old-open'].promptAt, NOW - 10 * 24 * HOUR);
   assert.equal(by['old-open'].prompt, 'last week');
   assert.equal(by['recent-closed'].open, false);
+});
+
+test('a deleted Claude log drops off the list on the next scan', t => {
+  const f = claudeFixture(t, new Set());
+  f.log('keep', NOW - HOUR);
+  f.log('gone', NOW - HOUR);
+  f.watcher.tick();
+  assert.deepEqual(Array.from(f.watcher.sessions(), s => s.id).sort(), ['gone', 'keep']);
+  fs.rmSync(path.join(f.root, '.claude/projects/-demo/gone.jsonl'));
+  f.watcher.lastScan = 0;
+  f.watcher.tick();
+  assert.deepEqual(Array.from(f.watcher.sessions(), s => s.id), ['keep']);
 });
 
 test('without a Claude sessions folder, open state is unknown and the window applies as before', t => {

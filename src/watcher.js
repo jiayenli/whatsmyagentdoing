@@ -426,6 +426,11 @@ class Watcher extends EventEmitter {
       this.candidates = [...claudeFiles(), ...codexFiles(since), ...geminiFiles(), ...copilotFiles(),
         ...clientFiles(CLIENT_DIRS, since), ...ompFiles(since, ompDirs(this.ompDir, process.env, home, process.platform)),
         ...antigravityFiles(since)];
+      // The Claude walk isn't windowed, so a Claude log missing from it was deleted: drop its session.
+      const listed = new Set(this.candidates.map((c) => c.file));
+      for (const [file, t] of this.trackers) {
+        if (t.session.agent === 'claude' && !listed.has(file)) { this.trackers.delete(file); changed = true; }
+      }
     }
 
     for (const c of this.candidates) {
