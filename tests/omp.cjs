@@ -158,7 +158,8 @@ test('OMP: nested agents and advisors link to their parents across levels',t=>{
  assert.equal(sessions.find(s=>s.id==='grandchild').parentId,'worker');
  assert.equal(sessions.find(s=>s.id==='grandchild').title,'Worker > Child');
  assert.equal(sessions.find(s=>s.id==='advisor').title,'Advisor');
- const snap=snapshot(f.watcher,{privacy:false}).sessions;
+ // The fixture clock lags the real one; keep the worker in progress so the finished-subagent filter doesn't drop it.
+ const snap=snapshot({sessions:()=>f.watcher.sessions().map(s=>({...s,lastEventAt:Date.now()}))},{privacy:false}).sessions;
  assert.equal(snap.find(s=>s.id==='worker').resumeCommand,null,'subagents have no standalone Resume');
  assert.ok(snap.find(s=>s.id==='parent').resumeCommand);
  assert.equal(snap.find(s=>s.id==='worker')._ompPathKey,undefined,'internal fields stay out of the API');

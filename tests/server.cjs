@@ -36,6 +36,19 @@ test('silent active sessions are flagged as stuck, with minutes, until they time
   assert.equal(by.f.status, 'idle'); assert.equal(by.f.stuck, 0);
 });
 
+test('a finished subagent drops off the list but still counts in today\'s totals', () => {
+  const { snapshot } = require('../src/server');
+  const now = Date.now();
+  const d = new Date(now), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const snap = snapshot({ sessions: () => [
+    { agent: 'claude', id: 'main', status: 'done', lastEventAt: now, cwd: '/w' },
+    { agent: 'claude', id: 'busy', parentId: 'main', subagent: true, status: 'tool', lastEventAt: now, cwd: '/w' },
+    { agent: 'claude', id: 'over', parentId: 'main', subagent: true, status: 'done', lastEventAt: now, cwd: '/w', daily: { day, turns: 2, tokens: 50 } },
+  ] }, { privacy: false });
+  assert.deepEqual(snap.sessions.map(s => s.id).sort(), ['busy', 'main']);
+  assert.equal(snap.summary.tokens, 50);
+});
+
 test('a Claude session whose process exited is shown as closed, with its open state and prompt time', () => {
   const { snapshot } = require('../src/server');
   const now = Date.now();

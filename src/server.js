@@ -33,6 +33,7 @@ function serveFile(res, root, rel) {
   fs.createReadStream(file).pipe(res);
 }
 const ACTIVE = new Set(['thinking', 'tool', 'typing']);
+const FINISHED = new Set(['done', 'idle', 'closed']);
 
 // Logs only record finished blocks, so a few states need a clock to resolve:
 // a reply with no follow-up is a finished turn, and an "active" session that
@@ -121,7 +122,9 @@ function snapshot(watcher, opts) {
   const raw = watcher.sessions();
   const sessions = raw.map((s) => view(s, now, opts));
   sessions.sort((a, b) => (b.lastEventAt || 0) - (a.lastEventAt || 0));
-  return { now, lang: opts.demo ? null : promptLanguage(raw), sessions, summary: summary(sessions, now) };
+  // A subagent that has finished drops off the list; today's totals still count it.
+  const shown = sessions.filter((s) => !s.subagent || !FINISHED.has(s.status));
+  return { now, lang: opts.demo ? null : promptLanguage(raw), sessions: shown, summary: summary(sessions, now) };
 }
 
 function createServer(watcher, opts, { onShutdown, onRestart } = {}) {
